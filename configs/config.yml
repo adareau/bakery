@@ -54,7 +54,7 @@ temperature sensors:
     channel: 1
     location: ambiant temp
     display name: TEST
-    alarm: false
+    alarm: true
     max: 0
     min: 500
     enabled: true
@@ -64,7 +64,7 @@ temperature sensors:
     channel: 3
     location: ambiant temp
     display name: TEST
-    alarm: false
+    alarm: true
     max: 0
     min: 500
     enabled: true

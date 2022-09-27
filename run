@@ -158,6 +158,13 @@ def _measure():
             str = LCD_MODEL.format(
                 name=ts.display_name, value=new_temperature, unit=ts.display_unit
             )
+            if ts.alarm and (new_temperature < ts.min or new_temperature > ts.max):
+                if int(2 * time.time()) % 2:  # blinking
+                    str += "!"
+                else:
+                    str += " "
+            else:
+                str += " "
             LCD_STRINGS.append(str)
 
 
