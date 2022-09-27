@@ -59,4 +59,15 @@ temperature sensors:
     min: 500
     enabled: true
 
+    # IP
+  - port: 0
+    channel: 3
+    location: ambiant temp
+    display name: TEST
+    alarm: false
+    max: 0
+    min: 500
+    enabled: true
+
+
 

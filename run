@@ -9,6 +9,7 @@ import configparser
 import os
 import time
 import logging
+import socket
 from pathlib import Path
 from datetime import datetime
 
@@ -73,7 +74,7 @@ def setup_influx_client():
 
 
 def setup_temperature_sensors():
-    global CONFIG, TEMP_SENSORS, LCD_HANDLER
+    global CONFIG, TEMP_SENSORS
     # - get logger
     logger = logging.getLogger(__name__)
     # - loop on temperature sensors
@@ -101,6 +102,10 @@ def setup_temperature_sensors():
         # append to list
         TEMP_SENSORS.append(ts)
     # - lcd ?
+
+
+def setup_LCD():
+    global CONFIG, LCD_HANDLER
     if CONFIG["global"]["lcd"]:
         LCD_HANDLER.openWaitForAttachment(1000)
         LCD_HANDLER.setBacklight(0.2)
@@ -157,11 +162,11 @@ def _measure():
 
 
 def _update_LCD():
-    global LCD_STRINGS, LCD_HANDLER
+    global CONFIG, LCD_STRINGS, LCD_HANDLER
     if not CONFIG["global"]["lcd"]:
         return
     line = 0
-    line_height = 10
+    line_height = 8
     line_width = 65
     font = LCDFont.FONT_5x8
     for str in LCD_STRINGS:
@@ -195,10 +200,35 @@ def start_monitoring():
         time.sleep(data_interval / 20)
 
 
+def display_IP():
+    global CONFIG, LCD_STRINGS, LCD_HANDLER
+    # - get logger
+    logger = logging.getLogger(__name__)
+    # - get IP
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # doesn't even have to be reachable
+        s.connect(("10.255.255.255", 1))
+        ip_address = s.getsockname()[0]
+    except Exception:
+        ip_address = "127.0.0.1"
+    finally:
+        s.close()
+    # - get hostname
+    hostname = socket.gethostname()
+    logger.debug(f"IP : {ip_address} | hostname : {hostname}")
+    # - display on LCD
+    if CONFIG["global"]["lcd"]:
+        font = LCDFont.FONT_5x8
+        msg = f"{ip_address}"
+        LCD_HANDLER.writeText(font, 0, 64 - 8, msg)
+
+
 # %% MAIN
 def main():
-    global CONFIG, CONFIG_FILE_PATH, DATABASE
     load_config()
+    setup_LCD()
+    display_IP()
     setup_influx_client()
     setup_temperature_sensors()
     start_monitoring()
