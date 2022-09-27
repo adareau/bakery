@@ -1,0 +1,62 @@
+# influxDB configuration
+influxdb:
+  host: 192.168.4.118
+  port: 8086
+  org: "PASQAL"
+  token: "WNmnzpmY63dzmFgrpwYYMKQgHNTIdeuVY2jEyLGDRSF_d3tXvYF3EnIkQ36SEr5q7W-tRtSqbbclkTqW45jxDg=="
+
+# global configuration attributes
+global:
+  bucket: sandbox  # will be "Altair" then
+  measurement: bake
+  tags:
+    room: Dagobah
+    site: Massy 102
+  max_duration: 10 # s (0 = infinity loop)
+  data_interval: 0.5 # s
+  lcd: true
+
+# list of temperature sensors
+# (phidgets)
+temperature sensors:
+  # IP
+  - port: 0
+    channel: 0
+    location: ion pump
+    display name: IP
+    alarm: false
+    max: 0
+    min: 500
+    enabled: true
+
+  # IP
+  - port: 0
+    channel: 4
+    location: ambiant temp
+    display name: AMB
+    alarm: false
+    max: 0
+    min: 500
+    enabled: true
+
+  # IP
+  - port: 0
+    channel: 2
+    location: ambiant temp
+    display name: TEST
+    alarm: false
+    max: 0
+    min: 500
+    enabled: true
+
+  # IP
+  - port: 0
+    channel: 1
+    location: ambiant temp
+    display name: TEST
+    alarm: false
+    max: 0
+    min: 500
+    enabled: true
+
+
