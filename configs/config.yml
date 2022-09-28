@@ -70,4 +70,15 @@ temperature sensors:
     enabled: true
 
 
-
+# list of pressure gauges
+# (phidgets)
+pressure gauges:
+  # IP
+  - port: 2
+    location: pumping station
+    model: PKR251
+    display name: TMP
+    alarm: false
+    max: 1
+    min: 0
+    enabled: true

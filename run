@@ -5,7 +5,6 @@
 # %% IMPORTS
 # - python standard libraries
 import argparse
-import configparser
 import os
 import time
 import logging
@@ -15,6 +14,7 @@ from datetime import datetime
 
 # - phidgets management
 from Phidget22.Devices.TemperatureSensor import TemperatureSensor
+from Phidget22.Devices.VoltageInput import VoltageInput, VoltageRange
 from Phidget22.Devices.LCD import LCD, LCDFont
 import daemon
 
@@ -31,9 +31,11 @@ CONFIG_FILE_PATH = CONFIGS_PATH / "config.yml"
 CONFIG = {}
 DATABASE = None
 TEMP_SENSORS = []
+PRESSURE_GAUGES = []
 START_TIME = time.time()
 LCD_STRINGS = []
-LCD_MODEL = "{name:<5}:{value:.1f}{unit}"
+LCD_MODEL_TEMP = "{name:<5}:{value:.1f}{unit}"
+LCD_MODEL_PRESSURE = "{name:<5}:{value:.1e}{unit}"
 LCD_HANDLER = LCD()
 
 # %% LOGGER
@@ -44,6 +46,35 @@ logging.basicConfig(format=fmt, datefmt="%Y-%m-%d %H:%M:%S", level=logging.WARNI
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.debug("debug mode enabled")
+
+# %% GAUGE API (FIXME: to move outside at some point)
+
+# voltage to pressure conversion functions
+
+
+def _Pfeiffer_IKR270(U):
+    """
+    Compact Cold Cathode Gauge IKR270
+    input  : U = voltage (in Volts)
+    output : P = pressuer (in mbar)
+    """
+    d = 12.75
+    P = 10 ** (1.25 * U - d)
+    return P
+
+
+def _Pfeiffer_PKR251(U):
+    """
+    Compact FullRange Gauge
+    input  : U = voltage (in Volts)
+    output : P = pressuer (in mbar)
+    """
+    d = 11.33
+    P = 10 ** (1.667 * U - d)
+    return P
+
+
+GAUGE_MODELS = {"IKR270": _Pfeiffer_IKR270, "PKR251": _Pfeiffer_PKR251}
 
 # %% FUNCTIONS
 
@@ -79,29 +110,69 @@ def setup_temperature_sensors():
     logger = logging.getLogger(__name__)
     # - loop on temperature sensors
     for conf in CONFIG["temperature sensors"]:
-        # initial checkup
-        if not conf["enabled"]:
-            continue
-        # logger
-        logger.debug(
-            "add temperature sensor > port : {port} | chan : {channel} | loc : {location}".format(
-                **conf
+        try:
+            # initial checkup
+            if not conf["enabled"]:
+                continue
+            # logger
+            logger.debug(
+                "add temperature sensor > port : {port} | chan : {channel} | loc : {location}".format(
+                    **conf
+                )
             )
-        )
-        # init
-        ts = TemperatureSensor()
-        ts.setHubPort(conf["port"])
-        ts.setChannel(conf["channel"])
-        ts.tags = {"location": conf["location"], "data_unit": "°C"}
-        ts.display_name = conf["display name"]
-        ts.display_unit = "C"
-        ts.alarm = conf["alarm"]
-        ts.min = conf["min"]
-        ts.max = conf["max"]
-        ts.openWaitForAttachment(1000)
-        # append to list
-        TEMP_SENSORS.append(ts)
-    # - lcd ?
+            # init
+            ts = TemperatureSensor()
+            ts.setHubPort(conf["port"])
+            ts.setChannel(conf["channel"])
+            ts.tags = {"location": conf["location"], "data_unit": "°C"}
+            ts.display_name = conf["display name"]
+            ts.display_unit = "C"
+            ts.alarm = conf["alarm"]
+            ts.min = conf["min"]
+            ts.max = conf["max"]
+            ts.openWaitForAttachment(1000)
+            # append to list
+            TEMP_SENSORS.append(ts)
+        except Exception as e:
+            logger.error(e)
+
+
+def setup_pressure_gauges():
+    global CONFIG, PRESSURE_GAUGES, GAUGE_MODELS
+    # - get logger
+    logger = logging.getLogger(__name__)
+    # - loop on temperature sensors
+    for conf in CONFIG["pressure gauges"]:
+        try:
+            # initial checkup
+            if not conf["enabled"]:
+                continue
+            # logger
+            logger.debug(
+                "add pressure gauge > port : {port} | model : {model} | loc : {location}".format(
+                    **conf
+                )
+            )
+            # check that model is implemented
+            if conf["model"] not in GAUGE_MODELS.keys():
+                logger.error("gauge model {model} is not implemented".format(**conf))
+                continue
+            # init
+            pg = VoltageInput()
+            pg.setHubPort(conf["port"])
+            pg.tags = {"location": conf["location"], "data_unit": "mbar"}
+            pg.display_name = conf["display name"]
+            pg.display_unit = "mbar"
+            pg.conversion_function = GAUGE_MODELS[conf["model"]]
+            pg.alarm = conf["alarm"]
+            pg.min = conf["min"]
+            pg.max = conf["max"]
+            pg.openWaitForAttachment(1000)
+            pg.setVoltageRange(VoltageRange.VOLTAGE_RANGE_40V)
+            # append to list
+            PRESSURE_GAUGES.append(pg)
+        except Exception as e:
+            logger.error(e)
 
 
 def setup_LCD():
@@ -139,7 +210,10 @@ def _write_point(fields, extra_tags=dict(), current_time=None):
 
 
 def _measure():
-    global TEMP_SENSORS, LCD_STRINGS, LCD_MODEL, CONFIG
+    global TEMP_SENSORS, PRESSURE_GAUGES, LCD_STRINGS, LCD_MODEL_TEMP, LCD_MODEL_PRESSURE, CONFIG
+    # get logger
+    logger = logging.getLogger(__name__)
+    # current time
     current_time = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     LCD_STRINGS = []
     # temperature
@@ -155,7 +229,7 @@ def _measure():
         except Exception as e:
             logger.error(e)
         if CONFIG["global"]["lcd"]:
-            str = LCD_MODEL.format(
+            str = LCD_MODEL_TEMP.format(
                 name=ts.display_name, value=new_temperature, unit=ts.display_unit
             )
             if ts.alarm and (new_temperature < ts.min or new_temperature > ts.max):
@@ -166,6 +240,40 @@ def _measure():
             else:
                 str += " "
             LCD_STRINGS.append(str)
+
+    # pressure gauges
+    # we start a new line on the LCD
+    if len(LCD_STRINGS) % 2:
+        LCD_STRINGS.append("")
+    LCD_STRINGS.append("-" * 100)
+    LCD_STRINGS.append("")
+
+    # get pressure values
+    for pg in PRESSURE_GAUGES:
+        new_voltage = -1
+        try:
+            new_voltage = pg.getVoltage()
+            new_pressure = pg.conversion_function(new_voltage)
+            _write_point(
+                fields={"voltage": new_voltage, "pressure":new_pressure},
+                extra_tags=pg.tags,
+                current_time=current_time,
+            )
+        except Exception as e:
+            logger.error(e)
+        if CONFIG["global"]["lcd"]:
+            str = LCD_MODEL_PRESSURE.format(
+                name=pg.display_name, value=new_pressure, unit=pg.display_unit
+            )
+            if pg.alarm and (new_temperature < pg.min or new_temperature > pg.max):
+                if int(2 * time.time()) % 2:  # blinking
+                    str += "!"
+                else:
+                    str += " "
+            else:
+                str += " "
+            LCD_STRINGS.append(str)
+            LCD_STRINGS.append("")
 
 
 def _update_LCD():
@@ -186,6 +294,9 @@ def _update_LCD():
 
 def start_monitoring():
     global START_TIME, CONFIG
+    # get logger
+    logger = logging.getLogger(__name__)
+    logger.debug("----------- START MONITORING -------------")
     # get config
     max_duration = CONFIG["global"]["max_duration"]
     data_interval = CONFIG["global"]["data_interval"]
@@ -238,6 +349,7 @@ def main():
     display_IP()
     setup_influx_client()
     setup_temperature_sensors()
+    setup_pressure_gauges()
     start_monitoring()
 
 
