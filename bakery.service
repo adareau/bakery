@@ -1,0 +1,16 @@
+# TO BE COPIED TO /etc/systemd/system/
+[Unit]
+Description=Bakery service for monitoring bakes.
+
+[Service]
+# Type=simple is implicit
+User=root
+WorkingDirectory=/home/alex/Programmation/Python/bakery
+# ExecCondition=/home/alex/Programmation/Python/bakery/__venv__/bin/python run -d --check_conditions
+ExecStart=/home/alex/Programmation/Python/bakery/__venv__/bin/python run -d
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
