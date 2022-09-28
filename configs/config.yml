@@ -12,7 +12,7 @@ global:
   tags:
     room: Dagobah
     site: Massy 102
-  max_duration: 10 # s (0 = infinity loop)
+  max_duration: 0 # s (0 = infinity loop)
   data_interval: 0.5 # s
   lcd: true
 
@@ -67,7 +67,7 @@ temperature sensors:
     alarm: true
     max: 0
     min: 500
-    enabled: true
+    enabled: false
 
 
 # list of pressure gauges
