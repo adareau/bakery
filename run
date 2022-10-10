@@ -307,6 +307,12 @@ def _measure():
                 extra_tags=tags,
                 current_time=current_time,
             )
+            if CONFIG["global"]["lcd"]:
+                str = LCD_MODEL_PRESSURE.format(
+                    name="SAES", value=new_pressure, unit="mbar"
+                )
+                LCD_STRINGS.append(str)
+                LCD_STRINGS.append("")
 
 
 
