@@ -12,6 +12,10 @@ import socket
 from pathlib import Path
 from datetime import datetime
 
+# - for the SAES pump communication
+import socket
+from bitstring import BitArray
+
 # - phidgets management
 from Phidget22.Devices.TemperatureSensor import TemperatureSensor
 from Phidget22.Devices.VoltageInput import VoltageInput, VoltageRange
@@ -37,6 +41,23 @@ LCD_STRINGS = []
 LCD_MODEL_TEMP = "{name:<5}:{value:.1f}{unit}"
 LCD_MODEL_PRESSURE = "{name:<5}:{value:.1e}{unit}"
 LCD_HANDLER = LCD()
+
+# %% SAES PAYLOAD DICT
+SAES_PAYLOAD_DICT = {
+    "SERIAL_NUMBER": [48, 80],
+    "IOUT": [80, 112],  # nA
+    # "VOUT": [112, 128],  # V
+    # "VIN": [128, 144],  # dV
+    # "TEMPERATURE": [160, 176],  # Kelvin
+    # "ARCING_NUMBER": [176, 192],
+    # "LIFE_TIME": [192, 224],  # total working hours
+    # "UPTIME": [224, 256],  # second elapsed till last start (pump uptime)
+    # "STATUS": [256, 272],
+    # "SW_STATUS": [272, 280],
+    "CONV_RATE": [1048, 1064],  # A/Torr
+    # "ONTIME": [288, 320],  # controller uptime (ms)
+}
+MILLIBAR_PER_TORR = 101325 / 760 / 100
 
 # %% LOGGER
 # setup format
@@ -210,7 +231,7 @@ def _write_point(fields, extra_tags=dict(), current_time=None):
 
 
 def _measure():
-    global TEMP_SENSORS, PRESSURE_GAUGES, LCD_STRINGS, LCD_MODEL_TEMP, LCD_MODEL_PRESSURE, CONFIG
+    global TEMP_SENSORS, PRESSURE_GAUGES, LCD_STRINGS, LCD_MODEL_TEMP, LCD_MODEL_PRESSURE, CONFIG, MILLIBAR_PER_TORR
     # get logger
     logger = logging.getLogger(__name__)
     # current time
@@ -255,7 +276,7 @@ def _measure():
             new_voltage = pg.getVoltage()
             new_pressure = pg.conversion_function(new_voltage)
             _write_point(
-                fields={"voltage": new_voltage, "pressure":new_pressure},
+                fields={"voltage": new_voltage, "pressure": new_pressure},
                 extra_tags=pg.tags,
                 current_time=current_time,
             )
@@ -265,7 +286,7 @@ def _measure():
             str = LCD_MODEL_PRESSURE.format(
                 name=pg.display_name, value=new_pressure, unit=pg.display_unit
             )
-            if pg.alarm and (new_temperature < pg.min or new_temperature > pg.max):
+            if pg.alarm and (new_pressure < pg.min or new_pressure > pg.max):
                 if int(2 * time.time()) % 2:  # blinking
                     str += "!"
                 else:
@@ -274,6 +295,19 @@ def _measure():
                 str += " "
             LCD_STRINGS.append(str)
             LCD_STRINGS.append("")
+    # SAES
+    if CONFIG["global"].get("SAES_enabled"):
+        result = _get_SAES_data()
+        if result:
+            new_current = result["IOUT"]
+            new_pressure = new_current * 1e-9 / result["CONV_RATE"] * MILLIBAR_PER_TORR
+            tags = {"location": "SAES ion pump", "data_unit": "mbar"}
+            _write_point(
+                fields={"current": new_current, "pressure": new_pressure},
+                extra_tags=tags,
+                current_time=current_time,
+            )
+
 
 
 def _update_LCD():
@@ -290,6 +324,48 @@ def _update_LCD():
         LCD_HANDLER.writeText(font, x, y, str)
         line += 1
     LCD_HANDLER.flush()
+
+
+# --- SAES PUMP
+
+
+def _get_SAES_data():
+    global CONFIG, SAES_PAYLOAD_DICT
+    result = False
+    try:
+        # - get configuration
+        ip = CONFIG["global"]["SAES_IP"]
+        ip = CONFIG["global"]["SAES_IP"]
+        port = CONFIG["global"]["SAES_port"]
+        port = CONFIG["global"]["SAES_port"]
+        # - prepare socket and send payload
+        payload = bytes.fromhex("0105")
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.sendto(payload, (ip, port))
+        s.settimeout(0.1)
+        # - get result
+        data, address = s.recvfrom(302)
+        payload = data[2:]  # /!\ BYTES
+        payload_bits = BitArray(bytes=payload)
+        # - parse result
+        # we'll store all the "raw" results in this dict
+        result = {}
+        for key, bitrange in SAES_PAYLOAD_DICT.items():
+            value = payload_bits[bitrange[0] : bitrange[1]]
+            if key in [
+                "STATUS",
+            ]:
+                result[key] = value
+            else:
+                result[key] = value.int
+
+    except Exception as e:
+        logger.error(e)
+    finally:
+        return result
+
+
+# --- Monitoring
 
 
 def start_monitoring():
