@@ -30,7 +30,7 @@ temperature sensors:
     alarm: false
     max: 0
     min: 500
-    enabled: true
+    enabled: false
 
 
 # list of pressure gauges
