@@ -14,7 +14,10 @@ global:
     site: Massy 102
   max_duration: 0 # s (0 = infinity loop)
   data_interval: 0.5 # s
-  lcd: true
+  lcd: false
+  SAES_IP: 127.0.0.1 #10.1.0.10
+  SAES_port: 2527
+  SAES_enabled: true
 
 # list of temperature sensors
 # (phidgets)
@@ -25,46 +28,6 @@ temperature sensors:
     location: ion pump
     display name: IP
     alarm: false
-    max: 0
-    min: 500
-    enabled: true
-
-  # IP
-  - port: 0
-    channel: 4
-    location: ambiant temp
-    display name: AMB
-    alarm: false
-    max: 0
-    min: 500
-    enabled: true
-
-  # IP
-  - port: 0
-    channel: 2
-    location: ambiant temp
-    display name: TEST
-    alarm: false
-    max: 0
-    min: 500
-    enabled: true
-
-  # IP
-  - port: 0
-    channel: 1
-    location: ambiant temp
-    display name: TEST
-    alarm: true
-    max: 0
-    min: 500
-    enabled: true
-
-    # IP
-  - port: 0
-    channel: 3
-    location: ambiant temp
-    display name: TEST
-    alarm: true
     max: 0
     min: 500
     enabled: false
@@ -81,4 +44,4 @@ pressure gauges:
     alarm: false
     max: 1
     min: 0
-    enabled: true
+    enabled: false
