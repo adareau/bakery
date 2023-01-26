@@ -383,6 +383,42 @@ def _get_SAES_data():
         return result
 
 
+# --- PTC10 temperature controler
+
+
+def _get_PTC10_data():
+    global CONFIG, SAES_PAYLOAD_DICT
+    result = False
+    try:
+        # - get configuration
+        ip = CONFIG["global"]["SAES_IP"]
+        port = CONFIG["global"]["SAES_port"]
+        # - prepare socket and send payload
+        payload = bytes.fromhex("0105")
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.sendto(payload, (ip, port))
+        s.settimeout(0.1)
+        # - get result
+        data, address = s.recvfrom(302)
+        payload = data[2:]  # /!\ BYTES
+        payload_bits = BitArray(bytes=payload)
+        # - parse result
+        # we'll store all the "raw" results in this dict
+        result = {}
+        for key, bitrange in SAES_PAYLOAD_DICT.items():
+            value = payload_bits[bitrange[0] : bitrange[1]]
+            if key in [
+                "STATUS",
+            ]:
+                result[key] = value
+            else:
+                result[key] = value.int
+
+    except Exception as e:
+        logger.error(e)
+    finally:
+        return result
+
 # --- Monitoring
 
 
