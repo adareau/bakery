@@ -95,7 +95,19 @@ def _Pfeiffer_PKR251(U):
     return P
 
 
-GAUGE_MODELS = {"IKR270": _Pfeiffer_IKR270, "PKR251": _Pfeiffer_PKR251}
+def _Gamma_Vac_SPC(U, offset=12):
+    """
+    Gamma Vacuum SPC ion pump controler
+    When monitoring set to "logarithmic pressure"
+    Offset value depends on selected range (on SPC)
+    input  : U = voltage (in Volts)
+    output : P = pressuer (in mbar)
+    """
+    P = 10 ** (U - offset)
+    return P
+
+
+GAUGE_MODELS = {"IKR270": _Pfeiffer_IKR270, "PKR251": _Pfeiffer_PKR251, "GammaSPC": _Gamma_Vac_SPC}
 
 # %% FUNCTIONS
 
