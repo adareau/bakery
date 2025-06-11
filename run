@@ -29,8 +29,8 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 import yaml
 
 # %% GLOBAL VARIABLES
-PASQWATCH_ROOT = Path(os.path.dirname(__file__))
-CONFIGS_PATH = PASQWATCH_ROOT / "configs"
+BAKERY_ROOT = Path(os.path.dirname(__file__))
+CONFIGS_PATH = BAKERY_ROOT / "configs"
 CONFIG_FILE_PATH = CONFIGS_PATH / "config.yml"
 CONFIG = {}
 DATABASE = None
