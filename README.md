@@ -16,5 +16,5 @@ source __venv__/bin/activate
 pip3 install Phidget22 influxdb-client pyyaml python-daemon
 ```
 
-systemctl enable pasqwatch
+systemctl enable bakery
 
