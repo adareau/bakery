@@ -59,6 +59,15 @@ SAES_PAYLOAD_DICT = {
 }
 MILLIBAR_PER_TORR = 101325 / 760 / 100
 
+# %% SRS PTC10 GLOBAL SETTINGS
+PTC10_COMMAND_LIST = [
+    "*IDN?",
+    "getOutput",
+    "getOutput.names",
+    "getOutput.units"
+]
+PTC10_TEMP_OUTPUTS = {"AOSense Oven": "Oven TC", "AOSense Hot Window": "HW TC"}
+
 # %% LOGGER
 # setup format
 fmt = "[%(asctime)s] - %(name)s - %(levelname)s - %(message)s"
@@ -243,7 +252,7 @@ def _write_point(fields, extra_tags=dict(), current_time=None):
 
 
 def _measure():
-    global TEMP_SENSORS, PRESSURE_GAUGES, LCD_STRINGS, LCD_MODEL_TEMP, LCD_MODEL_PRESSURE, CONFIG, MILLIBAR_PER_TORR
+    global TEMP_SENSORS, PRESSURE_GAUGES, LCD_STRINGS, LCD_MODEL_TEMP, LCD_MODEL_PRESSURE, CONFIG, MILLIBAR_PER_TORR, PTC10_TEMP_OUTPUTS
     # get logger
     logger = logging.getLogger(__name__)
     # current time
@@ -326,6 +335,22 @@ def _measure():
                 LCD_STRINGS.append(str)
                 LCD_STRINGS.append("")
 
+    # PTC10
+    if CONFIG["global"].get("PTC10_enabled"):
+        result = _get_PTC10_data()
+        if result:
+            outputs = result["outputs"]
+            device = result["device"]
+            for location, output_name in PTC10_TEMP_OUTPUTS.items():
+                if output_name in outputs:
+                    new_temperature = outputs[output_name]["value"]
+                    tags = {"location": location, "data_unit": "°C", "device": "PTC10", "device_serial_number": device["S/N"]}
+                    _write_point(
+                        fields={"temperature": new_temperature},
+                        extra_tags=tags,
+                        current_time=current_time,
+                    )
+
 
 
 def _update_LCD():
@@ -353,8 +378,6 @@ def _get_SAES_data():
     try:
         # - get configuration
         ip = CONFIG["global"]["SAES_IP"]
-        ip = CONFIG["global"]["SAES_IP"]
-        port = CONFIG["global"]["SAES_port"]
         port = CONFIG["global"]["SAES_port"]
         # - prepare socket and send payload
         payload = bytes.fromhex("0105")
@@ -382,6 +405,56 @@ def _get_SAES_data():
     finally:
         return result
 
+
+# --- PTC10 temperature controler
+
+
+def _get_PTC10_data():
+    global PTC10_COMMAND_LIST
+    result = False
+    try:
+        # - get configuration
+        ip = CONFIG["global"]["PTC10_IP"]
+        port = CONFIG["global"]["PTC10_port"]
+        # - prepare ascii message and convert to byte
+        ascii_msg = "\n".join(PTC10_COMMAND_LIST) + "\n"
+        raw_msg = bytes(ascii_msg, "ascii")
+        # - open socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1.0)
+        s.connect((ip, port))
+        s.sendall(raw_msg)
+        # - get reply
+        reply = {}
+        for cmd in PTC10_COMMAND_LIST:
+            data = s.recv(4096)
+            reply[cmd] = data
+        # close socket
+        s.close()
+        # - parse result
+        # convert reply to string
+        for msg, raw_str in reply.items():
+            good_str = raw_str.decode("latin-1")  # no shit...
+            good_str = good_str.replace("\r", "")
+            good_str = good_str.replace("\n", "")
+            reply[msg] = good_str.split(",")
+        # get outputs
+        outputs = {}
+        for val, name, unit in zip(reply["getOutput"], reply["getOutput.names"], reply["getOutput.units"]):
+            # remove leading & trailing spaces
+            val = val.strip()
+            name = name.strip()
+            unit = unit.strip()
+            # store
+            outputs[name] = {"value": float(val), "unit": unit}
+        # get device info
+        provider, device, SN, firmware = reply["*IDN?"]
+        device = {"provider": provider, "name": device, "S/N": SN, "firmware": firmware}
+        result = {"outputs": outputs, "device": device}
+    except Exception as e:
+        logger.error(e)
+    finally:
+        return result
 
 # --- Monitoring
 
