@@ -1,17 +1,17 @@
 # influxDB configuration
 influxdb:
-  host: 192.168.4.118
+  host: 192.168.1.1
   port: 8086
-  org: "PASQAL"
-  token: "WNmnzpmY63dzmFgrpwYYMKQgHNTIdeuVY2jEyLGDRSF_d3tXvYF3EnIkQ36SEr5q7W-tRtSqbbclkTqW45jxDg=="
+  org: "ORG"
+  token: "puttokenhere"
 
 # global configuration attributes
 global:
   bucket: sandbox  # will be "Altair" then
   measurement: bake
   tags:
-    room: Dagobah
-    site: Massy 102
+    room: room name
+    site: site name
   max_duration: 0 # s (0 = infinity loop)
   data_interval: 0.5 # s
   lcd: false
