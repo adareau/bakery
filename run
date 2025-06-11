@@ -60,12 +60,7 @@ SAES_PAYLOAD_DICT = {
 MILLIBAR_PER_TORR = 101325 / 760 / 100
 
 # %% SRS PTC10 GLOBAL SETTINGS
-PTC10_COMMAND_LIST = [
-    "*IDN?",
-    "getOutput",
-    "getOutput.names",
-    "getOutput.units"
-]
+PTC10_COMMAND_LIST = ["*IDN?", "getOutput", "getOutput.names", "getOutput.units"]
 PTC10_TEMP_OUTPUTS = {"AOSense Oven": "Oven TC", "AOSense Hot Window": "HW TC"}
 
 # %% LOGGER
@@ -116,7 +111,11 @@ def _Gamma_Vac_SPC(U, offset=12):
     return P
 
 
-GAUGE_MODELS = {"IKR270": _Pfeiffer_IKR270, "PKR251": _Pfeiffer_PKR251, "GammaSPC": _Gamma_Vac_SPC}
+GAUGE_MODELS = {
+    "IKR270": _Pfeiffer_IKR270,
+    "PKR251": _Pfeiffer_PKR251,
+    "GammaSPC": _Gamma_Vac_SPC,
+}
 
 # %% FUNCTIONS
 
@@ -344,13 +343,17 @@ def _measure():
             for location, output_name in PTC10_TEMP_OUTPUTS.items():
                 if output_name in outputs:
                     new_temperature = outputs[output_name]["value"]
-                    tags = {"location": location, "data_unit": "°C", "device": "PTC10", "device_serial_number": device["S/N"]}
+                    tags = {
+                        "location": location,
+                        "data_unit": "°C",
+                        "device": "PTC10",
+                        "device_serial_number": device["S/N"],
+                    }
                     _write_point(
                         fields={"temperature": new_temperature},
                         extra_tags=tags,
                         current_time=current_time,
                     )
-
 
 
 def _update_LCD():
@@ -440,7 +443,9 @@ def _get_PTC10_data():
             reply[msg] = good_str.split(",")
         # get outputs
         outputs = {}
-        for val, name, unit in zip(reply["getOutput"], reply["getOutput.names"], reply["getOutput.units"]):
+        for val, name, unit in zip(
+            reply["getOutput"], reply["getOutput.names"], reply["getOutput.units"]
+        ):
             # remove leading & trailing spaces
             val = val.strip()
             name = name.strip()
@@ -455,6 +460,7 @@ def _get_PTC10_data():
         logger.error(e)
     finally:
         return result
+
 
 # --- Monitoring
 
