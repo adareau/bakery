@@ -1,12 +1,12 @@
 # influxDB configuration
 influxdb:
-  host: 192.168.1.1
-  port: 8086
-  token: "puttokenhere"
+  host: 10.105.118.238
+  port: 8181
+  token: "put token here"
+  database: sandbox 
 
 # global configuration attributes
 global:
-  database: sandbox  # will be "Altair" then
   measurement: bake
   tags:
     room: room name
