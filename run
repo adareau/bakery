@@ -10,6 +10,7 @@ import time
 import logging
 import socket
 import random
+import shutil   
 from pathlib import Path
 from datetime import datetime, UTC
 
@@ -30,8 +31,10 @@ import yaml
 
 # %% GLOBAL VARIABLES
 BAKERY_ROOT = Path(os.path.dirname(__file__))
-CONFIGS_PATH = BAKERY_ROOT / "configs"
-CONFIG_FILE_PATH = CONFIGS_PATH / "config.yml"
+CONFIG_EXAMPLE_PATH = BAKERY_ROOT / "config_example.yml"
+CONF_FOLDER = Path.home() / ".bakery"
+CONFIG_FILE_PATH = CONF_FOLDER / "config.yml"
+BUFFER_DATABASE_PATH = CONF_FOLDER / "buffer_database.sqlite"
 CONFIG = {}
 DATABASE = None
 TEMP_SENSORS = []
@@ -119,7 +122,20 @@ GAUGE_MODELS = {
 
 # %% FUNCTIONS
 
-
+def check_folders():
+    global CONFIG_FILE_PATH, CONF_FOLDER, CONFIG_EXAMPLE_PATH
+    # logger
+    logger = logging.getLogger(__name__)
+    logger.debug(f"checking folders")
+    # check that the config folder exists; create if not
+    logger.debug(f"create config folder {CONF_FOLDER} if not done yet")
+    CONF_FOLDER.mkdir(exist_ok=True)
+    # check if the config file exists, otherwise copy example
+    if not CONFIG_FILE_PATH.is_file():
+        logger.warning(f"configuration file not found >> copying example config")
+        logger.warning(f"change the configuration file according to your needs : {CONFIG_FILE_PATH}")
+        shutil.copy(CONFIG_EXAMPLE_PATH, CONFIG_FILE_PATH)
+        
 def load_config():
     global CONFIG_FILE_PATH, CONFIG
     # logger
@@ -529,6 +545,7 @@ def display_IP():
 
 # %% MAIN
 def main():
+    check_folders()
     load_config()
     setup_LCD()
     display_IP()
