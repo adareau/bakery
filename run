@@ -10,7 +10,7 @@ import time
 import logging
 import socket
 import random
-import shutil   
+import shutil
 from pathlib import Path
 from datetime import datetime, UTC
 
@@ -26,7 +26,10 @@ import daemon
 
 # - database management
 from influxdb_client_3 import InfluxDBClient3, Point
+import sqlite3
+import json
 
+# - for configuration management
 import yaml
 
 # %% GLOBAL VARIABLES
@@ -35,6 +38,7 @@ CONFIG_EXAMPLE_PATH = BAKERY_ROOT / "config_example.yml"
 CONF_FOLDER = Path.home() / ".bakery"
 CONFIG_FILE_PATH = CONF_FOLDER / "config.yml"
 BUFFER_DATABASE_PATH = CONF_FOLDER / "buffer_database.sqlite"
+BUFFER_DATABASE_CONNECTION = None
 CONFIG = {}
 DATABASE = None
 TEMP_SENSORS = []
@@ -122,6 +126,7 @@ GAUGE_MODELS = {
 
 # %% FUNCTIONS
 
+
 def check_folders():
     global CONFIG_FILE_PATH, CONF_FOLDER, CONFIG_EXAMPLE_PATH
     # logger
@@ -133,9 +138,12 @@ def check_folders():
     # check if the config file exists, otherwise copy example
     if not CONFIG_FILE_PATH.is_file():
         logger.warning(f"configuration file not found >> copying example config")
-        logger.warning(f"change the configuration file according to your needs : {CONFIG_FILE_PATH}")
+        logger.warning(
+            f"change the configuration file according to your needs : {CONFIG_FILE_PATH}"
+        )
         shutil.copy(CONFIG_EXAMPLE_PATH, CONFIG_FILE_PATH)
-        
+
+
 def load_config():
     global CONFIG_FILE_PATH, CONFIG
     # logger
@@ -159,6 +167,19 @@ def setup_influx_client():
         database=dbconf["database"],
         token=dbconf["token"],
     )
+
+
+def setup_buffer_database():
+    global BUFFER_DATABASE_PATH, BUFFER_DATABASE_CONNECTION, CONFIG
+    # connect / create database
+    connection = sqlite3.connect(BUFFER_DATABASE_PATH)
+    # create table
+    cursor = connection.cursor()
+    table = CONFIG["influxdb"]["database"]
+    cursor.execute(
+        f"CREATE TABLE IF NOT EXISTS {table} (id INTEGER PRIMARY KEY AUTOINCREMENT, point_json TEXT)"
+    )
+    BUFFER_DATABASE_CONNECTION = connection
 
 
 def setup_temperature_sensors():
@@ -194,7 +215,9 @@ def setup_temperature_sensors():
             if not ts.emulated:
                 ts.openWaitForAttachment(1000)
             else:
-                ts.temperature = 20.0  # initial fake temperature for "realistic" fake data
+                ts.temperature = (
+                    20.0  # initial fake temperature for "realistic" fake data
+                )
             # append to list
             TEMP_SENSORS.append(ts)
         except Exception as e:
@@ -248,6 +271,8 @@ def setup_LCD():
 
 def _write_point(fields, extra_tags=dict(), current_time=None):
     global CONFIG, DATABASE
+    # get logger
+    logger = logging.getLogger(__name__)
     # get info from config
     global_tags = CONFIG["global"]["tags"]
     measurement = CONFIG["global"]["measurement"]
@@ -259,16 +284,33 @@ def _write_point(fields, extra_tags=dict(), current_time=None):
     if current_time is None:
         current_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     # prepare point
-    point = Point.from_dict(
-        {
-            "measurement": measurement,
-            "tags": tags,
-            "time": current_time,
-            "fields": fields,
-        }
-    )
+    point_dict = {
+        "measurement": measurement,
+        "tags": tags,
+        "time": current_time,
+        "fields": fields,
+    }
+    point = Point.from_dict(point_dict)
+
     # write to DB
-    DATABASE.write(point)
+    write_success = False
+    try:
+        DATABASE.write(point)
+        write_success = True
+    except Exception as e:
+        logger.error(e)
+
+    # in case of error, save in buffer database
+    if not write_success:
+        logger.debug("error writing in database > storing in local buffer database")
+        # convert to json string for easy storage
+        point_json_str = json.dumps(point_dict)
+        # cursor for sqlite
+        cursor = BUFFER_DATABASE_CONNECTION.cursor()
+        table = CONFIG["influxdb"]["database"]
+        data = (point_json_str,)
+        cursor.execute(f"INSERT INTO {table} (point_json) VALUES (?)", data)
+        BUFFER_DATABASE_CONNECTION.commit()
 
 
 def _measure():
@@ -284,7 +326,7 @@ def _measure():
         try:
             if ts.emulated:
                 # for an emulated sensor, we have a random fluctation
-                dT = (random.random() - 0.5) / 3.
+                dT = (random.random() - 0.5) / 3.0
                 ts.temperature += dT
                 new_temperature = ts.temperature
             else:
@@ -547,6 +589,7 @@ def display_IP():
 def main():
     check_folders()
     load_config()
+    setup_buffer_database()
     setup_LCD()
     display_IP()
     setup_influx_client()
@@ -560,16 +603,16 @@ if __name__ == "__main__":
     # -- get arguments
     # configure parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config", type=str, help="config file name")
+    parser.add_argument("-c", "--config", type=str, help="config file path")
     parser.add_argument(
-        "-d", "--deamon", action="store_true", help="Start pasqwatch as a deamon"
+        "-d", "--deamon", action="store_true", help="Start bakery as a deamon"
     )
 
     # process config argument
     args = parser.parse_args()
-    conf_name = args.config
-    if conf_name is not None:
-        CONFIG_FILE_PATH = CONFIGS_PATH / conf_name
+    conf_path = args.config
+    if conf_path is not None:
+        CONFIG_FILE_PATH = conf_path
 
     # -- start
     if args.deamon is True:
