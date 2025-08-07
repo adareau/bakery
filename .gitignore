@@ -3,6 +3,10 @@
 __venv__
 __pycache__
 
+# Configuration       #
+#######################
+configs/config.yml
+
 # Compiled source     #
 #######################
 build/
