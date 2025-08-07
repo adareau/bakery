@@ -442,6 +442,61 @@ def _update_LCD():
     LCD_HANDLER.flush()
 
 
+# --- CRUMBS PICKER
+
+
+def send_locally_stored_data_to_influx():
+    global CONFIG, DATABASE, BUFFER_DATABASE_CONNECTION
+    """This function checks if data is stored in the local sqlite
+    database - due to an error when trying to write to the influxdb database,
+    and tries to upload this data to the influxdb database again. In case of success,
+    data is removed from the local database."""
+    # - get logger
+    logger = logging.getLogger(__name__)
+    # - get data from the local database
+    logger.debug("get data from the local database")
+    cursor = BUFFER_DATABASE_CONNECTION.cursor()
+    table = CONFIG["influxdb"]["database"]
+    res = cursor.execute(f"SELECT * from {table}")
+    data = res.fetchall()
+    n_points = len(data)
+    logger.debug(f"found {n_points} points to collect !")
+    # - convert to points
+    n_success = 0
+    id_uploaded = []
+    sql_args = []
+    point_list = []
+    for d in data:
+        id, point_json = d
+        try:
+            point_dict = json.loads(point_json)
+            point = Point.from_dict(point_dict)
+            point_list.append(point)
+            id_uploaded.append(id)
+            sql_args.append("?")
+        except Exception as e:
+            logger.error(f"Exception caught converting point id={id} : {e}")
+    # - upload to influx
+    logger.debug("upload to influxdb database")
+    if point_list:
+        try:
+            DATABASE.write(point_list)
+        except Exception as e:
+            logger.error(e)
+            return
+
+    # - remove uploaded
+    n_success = len(id_uploaded)
+    logger.debug(f"uploaded {n_success} points to influxdatabase !")
+    if n_success:
+        arg_str = ", ".join(sql_args)
+        cursor.execute(f"DELETE from {table} where id IN ({arg_str})", id_uploaded)
+        BUFFER_DATABASE_CONNECTION.commit()
+    logger.debug(f"point removed from local database")
+
+
+
+
 # --- SAES PUMP
 
 
@@ -598,6 +653,14 @@ def main():
     start_monitoring()
 
 
+def pick_crumbs():
+    check_folders()
+    load_config()
+    setup_buffer_database()
+    setup_influx_client()
+    send_locally_stored_data_to_influx()
+
+
 # %% RUN
 if __name__ == "__main__":
     # -- get arguments
@@ -607,12 +670,22 @@ if __name__ == "__main__":
     parser.add_argument(
         "-d", "--deamon", action="store_true", help="Start bakery as a deamon"
     )
+    parser.add_argument(
+        "--pick-crumbs",
+        action="store_true",
+        help="Collects locally stored data and tries to upload it to the database. Only runs once.",
+    )
 
     # process config argument
     args = parser.parse_args()
     conf_path = args.config
     if conf_path is not None:
         CONFIG_FILE_PATH = conf_path
+
+    # -- collect crumbs ?
+    if args.pick_crumbs:
+        pick_crumbs()
+        exit()
 
     # -- start
     if args.deamon is True:
