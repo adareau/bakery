@@ -10,6 +10,7 @@ import time
 import logging
 import socket
 import random
+import shutil
 from pathlib import Path
 from datetime import datetime, UTC
 
@@ -25,13 +26,19 @@ import daemon
 
 # - database management
 from influxdb_client_3 import InfluxDBClient3, Point
+import sqlite3
+import json
 
+# - for configuration management
 import yaml
 
 # %% GLOBAL VARIABLES
 BAKERY_ROOT = Path(os.path.dirname(__file__))
-CONFIGS_PATH = BAKERY_ROOT / "configs"
-CONFIG_FILE_PATH = CONFIGS_PATH / "config.yml"
+CONFIG_EXAMPLE_PATH = BAKERY_ROOT / "config_example.yml"
+CONF_FOLDER = Path.home() / ".bakery"
+CONFIG_FILE_PATH = CONF_FOLDER / "config.yml"
+BUFFER_DATABASE_PATH = CONF_FOLDER / "buffer_database.sqlite"
+BUFFER_DATABASE_CONNECTION = None
 CONFIG = {}
 DATABASE = None
 TEMP_SENSORS = []
@@ -120,6 +127,23 @@ GAUGE_MODELS = {
 # %% FUNCTIONS
 
 
+def check_folders():
+    global CONFIG_FILE_PATH, CONF_FOLDER, CONFIG_EXAMPLE_PATH
+    # logger
+    logger = logging.getLogger(__name__)
+    logger.debug(f"checking folders")
+    # check that the config folder exists; create if not
+    logger.debug(f"create config folder {CONF_FOLDER} if not done yet")
+    CONF_FOLDER.mkdir(exist_ok=True)
+    # check if the config file exists, otherwise copy example
+    if not CONFIG_FILE_PATH.is_file():
+        logger.warning(f"configuration file not found >> copying example config")
+        logger.warning(
+            f"change the configuration file according to your needs : {CONFIG_FILE_PATH}"
+        )
+        shutil.copy(CONFIG_EXAMPLE_PATH, CONFIG_FILE_PATH)
+
+
 def load_config():
     global CONFIG_FILE_PATH, CONFIG
     # logger
@@ -143,6 +167,19 @@ def setup_influx_client():
         database=dbconf["database"],
         token=dbconf["token"],
     )
+
+
+def setup_buffer_database():
+    global BUFFER_DATABASE_PATH, BUFFER_DATABASE_CONNECTION, CONFIG
+    # connect / create database
+    connection = sqlite3.connect(BUFFER_DATABASE_PATH)
+    # create table
+    cursor = connection.cursor()
+    table = CONFIG["influxdb"]["database"]
+    cursor.execute(
+        f"CREATE TABLE IF NOT EXISTS {table} (id INTEGER PRIMARY KEY AUTOINCREMENT, point_json TEXT)"
+    )
+    BUFFER_DATABASE_CONNECTION = connection
 
 
 def setup_temperature_sensors():
@@ -178,7 +215,9 @@ def setup_temperature_sensors():
             if not ts.emulated:
                 ts.openWaitForAttachment(1000)
             else:
-                ts.temperature = 20.0  # initial fake temperature for "realistic" fake data
+                ts.temperature = (
+                    20.0  # initial fake temperature for "realistic" fake data
+                )
             # append to list
             TEMP_SENSORS.append(ts)
         except Exception as e:
@@ -232,6 +271,8 @@ def setup_LCD():
 
 def _write_point(fields, extra_tags=dict(), current_time=None):
     global CONFIG, DATABASE
+    # get logger
+    logger = logging.getLogger(__name__)
     # get info from config
     global_tags = CONFIG["global"]["tags"]
     measurement = CONFIG["global"]["measurement"]
@@ -243,16 +284,33 @@ def _write_point(fields, extra_tags=dict(), current_time=None):
     if current_time is None:
         current_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     # prepare point
-    point = Point.from_dict(
-        {
-            "measurement": measurement,
-            "tags": tags,
-            "time": current_time,
-            "fields": fields,
-        }
-    )
+    point_dict = {
+        "measurement": measurement,
+        "tags": tags,
+        "time": current_time,
+        "fields": fields,
+    }
+    point = Point.from_dict(point_dict)
+
     # write to DB
-    DATABASE.write(point)
+    write_success = False
+    try:
+        DATABASE.write(point)
+        write_success = True
+    except Exception as e:
+        logger.error(e)
+
+    # in case of error, save in buffer database
+    if not write_success:
+        logger.debug("error writing in database > storing in local buffer database")
+        # convert to json string for easy storage
+        point_json_str = json.dumps(point_dict)
+        # cursor for sqlite
+        cursor = BUFFER_DATABASE_CONNECTION.cursor()
+        table = CONFIG["influxdb"]["database"]
+        data = (point_json_str,)
+        cursor.execute(f"INSERT INTO {table} (point_json) VALUES (?)", data)
+        BUFFER_DATABASE_CONNECTION.commit()
 
 
 def _measure():
@@ -268,7 +326,7 @@ def _measure():
         try:
             if ts.emulated:
                 # for an emulated sensor, we have a random fluctation
-                dT = (random.random() - 0.5) / 3.
+                dT = (random.random() - 0.5) / 3.0
                 ts.temperature += dT
                 new_temperature = ts.temperature
             else:
@@ -382,6 +440,61 @@ def _update_LCD():
         LCD_HANDLER.writeText(font, x, y, str)
         line += 1
     LCD_HANDLER.flush()
+
+
+# --- CRUMBS PICKER
+
+
+def send_locally_stored_data_to_influx():
+    global CONFIG, DATABASE, BUFFER_DATABASE_CONNECTION
+    """This function checks if data is stored in the local sqlite
+    database - due to an error when trying to write to the influxdb database,
+    and tries to upload this data to the influxdb database again. In case of success,
+    data is removed from the local database."""
+    # - get logger
+    logger = logging.getLogger(__name__)
+    # - get data from the local database
+    logger.debug("get data from the local database")
+    cursor = BUFFER_DATABASE_CONNECTION.cursor()
+    table = CONFIG["influxdb"]["database"]
+    res = cursor.execute(f"SELECT * from {table}")
+    data = res.fetchall()
+    n_points = len(data)
+    logger.debug(f"found {n_points} points to collect !")
+    # - convert to points
+    n_success = 0
+    id_uploaded = []
+    sql_args = []
+    point_list = []
+    for d in data:
+        id, point_json = d
+        try:
+            point_dict = json.loads(point_json)
+            point = Point.from_dict(point_dict)
+            point_list.append(point)
+            id_uploaded.append(id)
+            sql_args.append("?")
+        except Exception as e:
+            logger.error(f"Exception caught converting point id={id} : {e}")
+    # - upload to influx
+    logger.debug("upload to influxdb database")
+    if point_list:
+        try:
+            DATABASE.write(point_list)
+        except Exception as e:
+            logger.error(e)
+            return
+
+    # - remove uploaded
+    n_success = len(id_uploaded)
+    logger.debug(f"uploaded {n_success} points to influxdatabase !")
+    if n_success:
+        arg_str = ", ".join(sql_args)
+        cursor.execute(f"DELETE from {table} where id IN ({arg_str})", id_uploaded)
+        BUFFER_DATABASE_CONNECTION.commit()
+    logger.debug(f"point removed from local database")
+
+
 
 
 # --- SAES PUMP
@@ -529,7 +642,9 @@ def display_IP():
 
 # %% MAIN
 def main():
+    check_folders()
     load_config()
+    setup_buffer_database()
     setup_LCD()
     display_IP()
     setup_influx_client()
@@ -538,21 +653,39 @@ def main():
     start_monitoring()
 
 
+def pick_crumbs():
+    check_folders()
+    load_config()
+    setup_buffer_database()
+    setup_influx_client()
+    send_locally_stored_data_to_influx()
+
+
 # %% RUN
 if __name__ == "__main__":
     # -- get arguments
     # configure parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config", type=str, help="config file name")
+    parser.add_argument("-c", "--config", type=str, help="config file path")
     parser.add_argument(
-        "-d", "--deamon", action="store_true", help="Start pasqwatch as a deamon"
+        "-d", "--deamon", action="store_true", help="Start bakery as a deamon"
+    )
+    parser.add_argument(
+        "--pick-crumbs",
+        action="store_true",
+        help="Collects locally stored data and tries to upload it to the database. Only runs once.",
     )
 
     # process config argument
     args = parser.parse_args()
-    conf_name = args.config
-    if conf_name is not None:
-        CONFIG_FILE_PATH = CONFIGS_PATH / conf_name
+    conf_path = args.config
+    if conf_path is not None:
+        CONFIG_FILE_PATH = conf_path
+
+    # -- collect crumbs ?
+    if args.pick_crumbs:
+        pick_crumbs()
+        exit()
 
     # -- start
     if args.deamon is True:
