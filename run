@@ -9,6 +9,7 @@ import os
 import time
 import logging
 import socket
+import random
 from pathlib import Path
 from datetime import datetime
 
@@ -155,9 +156,12 @@ def setup_temperature_sensors():
             # initial checkup
             if not conf["enabled"]:
                 continue
+            # emulated ?
+            conf["emulated"] = False if "emulated" not in conf else conf["emulated"]
+            conf["em_str"] = "**emulated**" if conf["emulated"] else ""
             # logger
             logger.debug(
-                "add temperature sensor > port : {port} | chan : {channel} | loc : {location}".format(
+                "add {em_str} temperature sensor > port : {port} | chan : {channel} | loc : {location}".format(
                     **conf
                 )
             )
@@ -171,7 +175,11 @@ def setup_temperature_sensors():
             ts.alarm = conf["alarm"]
             ts.min = conf["min"]
             ts.max = conf["max"]
-            ts.openWaitForAttachment(1000)
+            ts.emulated = conf["emulated"]
+            if not ts.emulated:
+                ts.openWaitForAttachment(1000)
+            else:
+                ts.temperature = 20.0  # initial fake temperature for "realistic" fake data
             # append to list
             TEMP_SENSORS.append(ts)
         except Exception as e:
@@ -261,7 +269,14 @@ def _measure():
     for ts in TEMP_SENSORS:
         new_temperature = -1
         try:
-            new_temperature = ts.getTemperature()
+            if ts.emulated:
+                # for an emulated sensor, we have a random fluctation
+                dT = (random.random() - 0.5) / 3.
+                ts.temperature += dT
+                new_temperature = ts.temperature
+            else:
+                # otherwise, we measure temperature
+                new_temperature = ts.getTemperature()
             _write_point(
                 fields={"temperature": new_temperature},
                 extra_tags=ts.tags,

@@ -22,6 +22,17 @@ global:
 # list of temperature sensors
 # (phidgets)
 temperature sensors:
+  # emulated sensor (for tests)
+  - port: 0
+    channel: 0
+    location: dummy sensor
+    display name: DMY
+    alarm: false
+    max: 0
+    min: 500
+    enabled: true
+    emulated: true
+
   # IP
   - port: 0
     channel: 0
