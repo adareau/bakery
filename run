@@ -25,7 +25,7 @@ from Phidget22.Devices.LCD import LCD, LCDFont
 import daemon
 
 # - database management
-from influxdb_client_3 import InfluxDBClient3, Point
+import requests
 import sqlite3
 import json
 
@@ -78,6 +78,98 @@ logging.basicConfig(format=fmt, datefmt="%Y-%m-%d %H:%M:%S", level=logging.WARNI
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.debug("debug mode enabled")
+
+
+# %% INFLUXDB HTTP CLIENT
+"""Homemade client, in order to avoid the use of the influxdb3 python 
+library for compatibility reasons"""
+
+
+class InfluxHTTPClient(object):
+    """a simple client for putting data to influxDB3 database using the http api v3"""
+
+    API_URL = "/api/v3/write_lp"
+    HOST_URL = "http://{host}:{port}"
+
+    def __init__(self, host, port, token, database):
+        self.host = host
+        self.port = port
+        self.token = token
+        self.database = database
+        self._line_fmt = "{table},{tags} {fields} {timestamp:02d}\n"
+
+    def _escape_str(self, str):
+        characters = [" ", ",", "="]
+        for c in characters:
+            str = str.replace(c, "\\" + c)
+        return str
+
+    def _write_line(self, table, tag_dict, field_dict, timestamp_ms=None):
+        # prepare timestamp
+        if timestamp_ms is None:
+            timestamp_seconds = int(datetime.now(UTC).timestamp())
+            timestamp_ms = timestamp_seconds * 1000
+        timestamp_ms = int(timestamp_ms)
+        # prepare tags
+        tags = ",".join(
+            [
+                f"{self._escape_str(k)}={self._escape_str(v)}"
+                for k, v in tag_dict.items()
+            ]
+        )
+        # prepare fields
+        fields = ",".join([f"{self._escape_str(k)}={v}" for k, v in field_dict.items()])
+        # write line
+        data_dict = {
+            "tags": tags,
+            "fields": fields,
+            "table": table,
+            "timestamp": timestamp_ms,
+        }
+        line = self._line_fmt.format(**data_dict)
+        return line
+
+    def _post_data(self, raw_data):
+        # prepare request
+        req_url = self.HOST_URL.format(host=self.host, port=self.port) + self.API_URL
+        params = {"db": self.database, "precision": "millisecond"}
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "text/plain; charset=utf-8",
+        }
+        data = raw_data.encode("utf8")
+        # post
+        return requests.post(req_url, headers=headers, params=params, data=data)
+
+    def write_data(self, points):
+        """writes data to the database.
+        points shoud be a dict or a list of dict, with keys :
+         'table' : a string indicating the table
+         'tags' : a dict with tags keys and values
+         'fields' : a dict with fields keys and values
+         'timestamp' : a unix timestamp in ms, or None (get current timestamp)
+        """
+        # init data
+        data = ""
+        # handle unique point
+        if isinstance(points, dict):
+            points = [
+                points,
+            ]
+        # prepare data
+        for p in points:
+            data += self._write_line(
+                table=p["table"],
+                tag_dict=p["tags"],
+                field_dict=p["fields"],
+                timestamp_ms=p["timestamp"],
+            )
+        # write
+        res = self._post_data(data)
+
+        if res.status_code != 204:
+            raise Exception(res.text)
+
 
 # %% GAUGE API (FIXME: to move outside at some point)
 
@@ -162,8 +254,9 @@ def setup_influx_client():
     logger.debug(f"setting up influxdb client")
     # setup influx client
     dbconf = CONFIG["influxdb"]
-    DATABASE = InfluxDBClient3(
-        host=f'http://{dbconf["host"]}:{dbconf["port"]}',
+    DATABASE = InfluxHTTPClient(
+        host=dbconf["host"],
+        port=dbconf["port"],
         database=dbconf["database"],
         token=dbconf["token"],
     )
@@ -282,20 +375,19 @@ def _write_point(fields, extra_tags=dict(), current_time=None):
     tags.update(extra_tags)
     # get current time
     if current_time is None:
-        current_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        current_time = int(datetime.now(UTC).timestamp() * 1000)  # in ms
     # prepare point
     point_dict = {
-        "measurement": measurement,
+        "table": measurement,
         "tags": tags,
-        "time": current_time,
+        "timestamp": current_time,
         "fields": fields,
     }
-    point = Point.from_dict(point_dict)
 
     # write to DB
     write_success = False
     try:
-        DATABASE.write(point)
+        DATABASE.write_data(point_dict)
         write_success = True
     except Exception as e:
         logger.error(e)
@@ -318,7 +410,7 @@ def _measure():
     # get logger
     logger = logging.getLogger(__name__)
     # current time
-    current_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    current_time = int(datetime.now(UTC).timestamp() * 1000)  # in ms
     LCD_STRINGS = []
     # temperature
     for ts in TEMP_SENSORS:
@@ -470,8 +562,7 @@ def send_locally_stored_data_to_influx():
         id, point_json = d
         try:
             point_dict = json.loads(point_json)
-            point = Point.from_dict(point_dict)
-            point_list.append(point)
+            point_list.append(point_dict)
             id_uploaded.append(id)
             sql_args.append("?")
         except Exception as e:
@@ -480,7 +571,7 @@ def send_locally_stored_data_to_influx():
     logger.debug("upload to influxdb database")
     if point_list:
         try:
-            DATABASE.write(point_list)
+            DATABASE.write_data(point_list)
         except Exception as e:
             logger.error(e)
             return
@@ -493,8 +584,6 @@ def send_locally_stored_data_to_influx():
         cursor.execute(f"DELETE from {table} where id IN ({arg_str})", id_uploaded)
         BUFFER_DATABASE_CONNECTION.commit()
     logger.debug(f"point removed from local database")
-
-
 
 
 # --- SAES PUMP
