@@ -307,6 +307,7 @@ def setup_temperature_sensors():
             ts = TemperatureSensor()
             ts.setHubPort(conf["port"])
             ts.setChannel(conf["channel"])
+            ts.emulated = conf["emulated"]
             if not ts.emulated:
                 ts.openWaitForAttachment(1000)
             else:
@@ -325,7 +326,6 @@ def setup_temperature_sensors():
             ts.alarm = conf["alarm"]
             ts.min = conf["min"]
             ts.max = conf["max"]
-            ts.emulated = conf["emulated"]
             # append to list
             TEMP_SENSORS.append(ts)
         except Exception as e:
