@@ -619,8 +619,8 @@ def _get_SAES_data():
         # - prepare socket and send payload
         payload = bytes.fromhex("0105")
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.sendto(payload, (ip, port))
         s.settimeout(0.1)
+        s.sendto(payload, (ip, port))
         # - get result
         data, address = s.recvfrom(302)
         payload = data[2:]  # /!\ BYTES
