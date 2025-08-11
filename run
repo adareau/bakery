@@ -404,17 +404,23 @@ def _write_bucket():
     except Exception as e:
         logger.error(e)
 
-    # # in case of error, save in buffer database
-    # if not write_success:
-    #     logger.debug("error writing in database > storing in local buffer database")
-    #     # convert to json string for easy storage
-    #     point_json_str = json.dumps(point_dict)
-    #     # cursor for sqlite
-    #     cursor = BUFFER_DATABASE_CONNECTION.cursor()
-    #     table = CONFIG["influxdb"]["database"]
-    #     data = (point_json_str,)
-    #     cursor.execute(f"INSERT INTO {table} (point_json) VALUES (?)", data)
-    #     BUFFER_DATABASE_CONNECTION.commit()
+    # in case of error, save in buffer database
+    if not write_success:
+        logger.info("error writing in database > storing in local buffer database")
+        for point_dict in POINTS_BUCKET:
+            # convert to json string for easy storage
+            point_json_str = json.dumps(point_dict)
+            # cursor for sqlite
+            cursor = BUFFER_DATABASE_CONNECTION.cursor()
+            table = CONFIG["influxdb"]["database"]
+            data = (point_json_str,)
+            cursor.execute(f"INSERT INTO {table} (point_json) VALUES (?)", data)
+            BUFFER_DATABASE_CONNECTION.commit()
+
+
+def _empty_bucket():
+    global POINTS_BUCKET
+    POINTS_BUCKET = []
 
 
 def _measure():
@@ -726,6 +732,7 @@ def start_monitoring():
         if time.time() - last_measurement > data_interval:
             last_measurement = time.time()
             t0 = time.time()
+            _empty_bucket()
             _measure()
             _write_bucket()
             _update_LCD()
