@@ -509,7 +509,12 @@ def _measure():
             new_pressure = new_current * 1e-9 / result["CONV_RATE"] * MILLIBAR_PER_TORR
             temperature_K = result["TEMPERATURE"]
             temperature_degC = temperature_K - 273.15
-            tags = {"location": "SAES ion pump", "data_unit": "mbar"}
+            tags = {
+                "location": "SAES ion pump",
+                "data_unit": "mbar",
+                "device": "SAES SIP",
+                "device_serial_number": result["SERIAL_NUMBER"],
+            }
             _add_point_to_bucket(
                 fields={
                     "current": new_current,
