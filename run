@@ -48,6 +48,8 @@ LCD_STRINGS = []
 LCD_MODEL_TEMP = "{name:<5}:{value:.1f}{unit}"
 LCD_MODEL_PRESSURE = "{name:<5}:{value:.1e}{unit}"
 LCD_HANDLER = LCD()
+LCD_SPINNER_SEQ = ["-", "\\", "|", "/"]
+LCD_SPINNER_STATE = 0
 
 # %% SAES PAYLOAD DICT
 SAES_PAYLOAD_DICT = {
@@ -519,9 +521,10 @@ def _measure():
 
 
 def _update_LCD():
-    global CONFIG, LCD_STRINGS, LCD_HANDLER
+    global CONFIG, LCD_STRINGS, LCD_HANDLER, LCD_SPINNER_SEQ, LCD_SPINNER_STATE
     if not CONFIG["global"]["lcd"]:
         return
+    # Write data
     line = 0
     line_height = 8
     line_width = 65
@@ -531,6 +534,15 @@ def _update_LCD():
         y = (line // 2) * line_height
         LCD_HANDLER.writeText(font, x, y, str)
         line += 1
+
+    # Update spinner
+    spinner_str = LCD_SPINNER_SEQ[LCD_SPINNER_STATE % len(LCD_SPINNER_SEQ)]
+    LCD_SPINNER_STATE += 1
+    # screen size is 128 x 64, and one character is 5 x 8
+    # so position of down right corner is 128-5, 64-8
+    LCD_HANDLER.writeText(font, 128-5, 64-8, spinner_str)
+    
+    # Flush
     LCD_HANDLER.flush()
 
 
