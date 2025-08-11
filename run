@@ -59,11 +59,11 @@ SAES_PAYLOAD_DICT = {
     "IOUT": [80, 112],  # nA
     # "VOUT": [112, 128],  # V
     # "VIN": [128, 144],  # dV
-    # "TEMPERATURE": [160, 176],  # Kelvin
+    "TEMPERATURE": [160, 176],  # Kelvin
     # "ARCING_NUMBER": [176, 192],
     # "LIFE_TIME": [192, 224],  # total working hours
     # "UPTIME": [224, 256],  # second elapsed till last start (pump uptime)
-    # "STATUS": [256, 272],
+    "STATUS": [256, 272],
     # "SW_STATUS": [272, 280],
     "CONV_RATE": [1048, 1064],  # A/Torr
     # "ONTIME": [288, 320],  # controller uptime (ms)
@@ -141,7 +141,9 @@ class InfluxHTTPClient(object):
         }
         data = raw_data.encode("utf8")
         # post
-        return requests.post(req_url, headers=headers, params=params, data=data, timeout=2)
+        return requests.post(
+            req_url, headers=headers, params=params, data=data, timeout=2
+        )
 
     def write_data(self, points):
         """writes data to the database.
@@ -485,9 +487,15 @@ def _measure():
         if result:
             new_current = result["IOUT"]
             new_pressure = new_current * 1e-9 / result["CONV_RATE"] * MILLIBAR_PER_TORR
+            temperature_K = result["TEMPERATURE"]
+            temperature_degC = temperature_K - 273.15
             tags = {"location": "SAES ion pump", "data_unit": "mbar"}
             _write_point(
-                fields={"current": new_current, "pressure": new_pressure},
+                fields={
+                    "current": new_current,
+                    "pressure": new_pressure,
+                    "temperature": temperature_degC,
+                },
                 extra_tags=tags,
                 current_time=current_time,
             )
@@ -772,7 +780,9 @@ if __name__ == "__main__":
         "-d", "--deamon", action="store_true", help="Start bakery as a deamon"
     )
     parser.add_argument("--debug", action="store_true", help="Start in debug mode")
-    parser.add_argument("--log2file", action="store_true", help="Stores the logs in a file")
+    parser.add_argument(
+        "--log2file", action="store_true", help="Stores the logs in a file"
+    )
     parser.add_argument(
         "--pick-crumbs",
         action="store_true",
@@ -789,18 +799,19 @@ if __name__ == "__main__":
     if args.debug:
         logger.setLevel(logging.DEBUG)
         logger.debug("debug mode enabled")
-    
+
     if args.log2file:
         logger.info(f"logging to {LOG_FILE_PATH}")
         handler = RotatingFileHandler(
-            LOG_FILE_PATH,          # Log file name
-            maxBytes=100000,    # Maximum size of a log file in bytes before rotation
-            backupCount=3       # Number of backup files to keep
+            LOG_FILE_PATH,  # Log file name
+            maxBytes=100000,  # Maximum size of a log file in bytes before rotation
+            backupCount=3,  # Number of backup files to keep
         )
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-
 
     # -- collect crumbs ?
     if args.pick_crumbs:
