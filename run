@@ -513,7 +513,7 @@ def _measure():
                 "location": "SAES ion pump",
                 "data_unit": "mbar",
                 "device": "SAES SIP",
-                "device_serial_number": result["SERIAL_NUMBER"],
+                "device_serial_number": str(result["SERIAL_NUMBER"]),
             }
             _add_point_to_bucket(
                 fields={
