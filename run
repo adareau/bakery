@@ -307,6 +307,12 @@ def setup_temperature_sensors():
             ts = TemperatureSensor()
             ts.setHubPort(conf["port"])
             ts.setChannel(conf["channel"])
+            if not ts.emulated:
+                ts.openWaitForAttachment(1000)
+            else:
+                ts.temperature = (
+                    20.0  # initial fake temperature for "realistic" fake data
+                )
             ts.tags = {
                 "location": conf["location"],
                 "data_unit": "°C",
@@ -320,12 +326,6 @@ def setup_temperature_sensors():
             ts.min = conf["min"]
             ts.max = conf["max"]
             ts.emulated = conf["emulated"]
-            if not ts.emulated:
-                ts.openWaitForAttachment(1000)
-            else:
-                ts.temperature = (
-                    20.0  # initial fake temperature for "realistic" fake data
-                )
             # append to list
             TEMP_SENSORS.append(ts)
         except Exception as e:
