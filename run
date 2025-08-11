@@ -53,6 +53,9 @@ LCD_HANDLER = LCD()
 LCD_SPINNER_SEQ = ["-", "\\", "|", "/"]
 LCD_SPINNER_STATE = 0
 
+# write bucket
+POINTS_BUCKET = []
+
 # %% SAES PAYLOAD DICT
 SAES_PAYLOAD_DICT = {
     "SERIAL_NUMBER": [48, 80],
@@ -366,8 +369,8 @@ def setup_LCD():
         LCD_HANDLER.setBacklight(0.2)
 
 
-def _write_point(fields, extra_tags=dict(), current_time=None):
-    global CONFIG, DATABASE
+def _add_point_to_bucket(fields, extra_tags=dict(), current_time=None):
+    global CONFIG, DATABASE, POINTS_BUCKET
     # get logger
     logger = logging.getLogger(__name__)
     # get info from config
@@ -388,25 +391,30 @@ def _write_point(fields, extra_tags=dict(), current_time=None):
         "fields": fields,
     }
 
+    POINTS_BUCKET.append(point_dict)
+
+
+def _write_bucket():
+    global DATABASE, POINTS_BUCKET
     # write to DB
     write_success = False
     try:
-        DATABASE.write_data(point_dict)
+        DATABASE.write_data(POINTS_BUCKET)
         write_success = True
     except Exception as e:
         logger.error(e)
 
-    # in case of error, save in buffer database
-    if not write_success:
-        logger.debug("error writing in database > storing in local buffer database")
-        # convert to json string for easy storage
-        point_json_str = json.dumps(point_dict)
-        # cursor for sqlite
-        cursor = BUFFER_DATABASE_CONNECTION.cursor()
-        table = CONFIG["influxdb"]["database"]
-        data = (point_json_str,)
-        cursor.execute(f"INSERT INTO {table} (point_json) VALUES (?)", data)
-        BUFFER_DATABASE_CONNECTION.commit()
+    # # in case of error, save in buffer database
+    # if not write_success:
+    #     logger.debug("error writing in database > storing in local buffer database")
+    #     # convert to json string for easy storage
+    #     point_json_str = json.dumps(point_dict)
+    #     # cursor for sqlite
+    #     cursor = BUFFER_DATABASE_CONNECTION.cursor()
+    #     table = CONFIG["influxdb"]["database"]
+    #     data = (point_json_str,)
+    #     cursor.execute(f"INSERT INTO {table} (point_json) VALUES (?)", data)
+    #     BUFFER_DATABASE_CONNECTION.commit()
 
 
 def _measure():
@@ -428,7 +436,7 @@ def _measure():
             else:
                 # otherwise, we measure temperature
                 new_temperature = ts.getTemperature()
-            _write_point(
+            _add_point_to_bucket(
                 fields={"temperature": new_temperature},
                 extra_tags=ts.tags,
                 current_time=current_time,
@@ -461,7 +469,7 @@ def _measure():
         try:
             new_voltage = pg.getVoltage()
             new_pressure = pg.conversion_function(new_voltage)
-            _write_point(
+            _add_point_to_bucket(
                 fields={"voltage": new_voltage, "pressure": new_pressure},
                 extra_tags=pg.tags,
                 current_time=current_time,
@@ -490,7 +498,7 @@ def _measure():
             temperature_K = result["TEMPERATURE"]
             temperature_degC = temperature_K - 273.15
             tags = {"location": "SAES ion pump", "data_unit": "mbar"}
-            _write_point(
+            _add_point_to_bucket(
                 fields={
                     "current": new_current,
                     "pressure": new_pressure,
@@ -521,7 +529,7 @@ def _measure():
                         "device": "PTC10",
                         "device_serial_number": device["S/N"],
                     }
-                    _write_point(
+                    _add_point_to_bucket(
                         fields={"temperature": new_temperature},
                         extra_tags=tags,
                         current_time=current_time,
@@ -719,6 +727,7 @@ def start_monitoring():
             last_measurement = time.time()
             t0 = time.time()
             _measure()
+            _write_bucket()
             _update_LCD()
             t1 = time.time()
             logger.debug(f"measurement done in {t1-t0}s")
