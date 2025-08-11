@@ -103,11 +103,13 @@ class InfluxHTTPClient(object):
         self.database = database
         self._line_fmt = "{table},{tags} {fields} {timestamp:02d}\n"
 
-    def _escape_str(self, str):
+    def _escape_str(self, s):
+        if not isinstance(s, str):
+            return s
         characters = [" ", ",", "="]
         for c in characters:
-            str = str.replace(c, "\\" + c)
-        return str
+            s = s.replace(c, "\\" + c)
+        return s
 
     def _write_line(self, table, tag_dict, field_dict, timestamp_ms=None):
         # prepare timestamp
@@ -310,7 +312,7 @@ def setup_temperature_sensors():
                 "data_unit": "°C",
                 "device": "phidget",
                 "device": "phidget",
-                "device_serial_number": str(ts.getDeviceSerialNumber()),
+                "device_serial_number": ts.getDeviceSerialNumber(),
             }
             ts.display_name = conf["display name"]
             ts.display_unit = "C"
@@ -513,7 +515,7 @@ def _measure():
                 "location": "SAES ion pump",
                 "data_unit": "mbar",
                 "device": "SAES SIP",
-                "device_serial_number": str(result["SERIAL_NUMBER"]),
+                "device_serial_number": result["SERIAL_NUMBER"],
             }
             _add_point_to_bucket(
                 fields={
