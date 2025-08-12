@@ -5,9 +5,7 @@ Description=Bakery service for monitoring bakes.
 [Service]
 # Type=simple is implicit
 User=root
-WorkingDirectory=/home/alex/Programmation/Python/bakery
-# ExecCondition=/home/alex/Programmation/Python/bakery/__venv__/bin/python run -d --check_conditions
-ExecStart=/home/alex/Programmation/Python/bakery/__venv__/bin/python run -d
+ExecStart=/usr/bin/python3 /root/bakery/run --log2file
 
 Restart=always
 RestartSec=10
